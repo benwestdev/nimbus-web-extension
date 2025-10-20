@@ -56,35 +56,47 @@ function detectSObject(): string | null {
 function getFormFields(): Record<string, string> {
   const fields: Record<string, string> = {}
   
-  // Get Lightning components inputs
-  const lightningInputs = document.querySelectorAll(
-    'lightning-input, lightning-textarea, lightning-combobox, input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="url"], textarea, select'
+  // Get Lightning components and standard HTML inputs
+  const allInputs = document.querySelectorAll(
+    'lightning-input, lightning-textarea, lightning-combobox, input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="url"], input[type="date"], input[type="datetime-local"], input[type="checkbox"], textarea, select'
   )
   
-  lightningInputs.forEach((input: Element) => {
+  allInputs.forEach((input: Element) => {
     const htmlInput = input as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    
+    // Try to get field name from various attributes
     const name = 
       htmlInput.name || 
       htmlInput.getAttribute("data-field-name") || 
       htmlInput.getAttribute("field-name") ||
+      htmlInput.getAttribute("data-name") ||
       htmlInput.id
     
-    if (name && htmlInput.value) {
+    if (!name) return
+    
+    // Handle different input types
+    if (htmlInput.type === "checkbox") {
+      fields[name] = (htmlInput as HTMLInputElement).checked ? "true" : "false"
+    } else if (htmlInput.value) {
       fields[name] = htmlInput.value
     }
   })
   
+  console.log(`[Nimbus] Found ${Object.keys(fields).length} fields to save`)
   return fields
 }
 
 // Populate form fields with saved values
 function setFormFields(fields: Record<string, string>): void {
+  let loadedCount = 0
+  
   Object.entries(fields).forEach(([name, value]) => {
     // Try different selectors to find the field
     const selectors = [
       `[name="${name}"]`,
       `[data-field-name="${name}"]`,
       `[field-name="${name}"]`,
+      `[data-name="${name}"]`,
       `#${name}`
     ]
     
@@ -93,14 +105,25 @@ function setFormFields(fields: Record<string, string>): void {
       elements.forEach((element: Element) => {
         const htmlElement = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
         if (htmlElement) {
-          htmlElement.value = value
-          // Trigger change event for Lightning components
+          // Handle checkboxes differently
+          if (htmlElement.type === "checkbox") {
+            htmlElement.checked = value === "true"
+          } else {
+            htmlElement.value = value
+          }
+          
+          // Trigger events for Lightning components
           htmlElement.dispatchEvent(new Event("change", { bubbles: true }))
           htmlElement.dispatchEvent(new Event("input", { bubbles: true }))
+          htmlElement.dispatchEvent(new Event("blur", { bubbles: true }))
+          
+          loadedCount++
         }
       })
     }
   })
+  
+  console.log(`[Nimbus] Loaded ${loadedCount} field values`)
 }
 
 // Create the template button UI
@@ -242,56 +265,68 @@ function createTemplateButtons(): HTMLDivElement {
 
 // Handle saving template
 async function handleSaveTemplate() {
-  const sobject = detectSObject()
-  if (!sobject) {
-    alert("Could not detect SObject type. Please make sure you're on a Salesforce form.")
-    return
+  try {
+    const sobject = detectSObject()
+    if (!sobject) {
+      alert("Could not detect SObject type. Please make sure you're on a Salesforce form.")
+      return
+    }
+    
+    const fields = getFormFields()
+    if (Object.keys(fields).length === 0) {
+      alert("No form fields found to save. Please fill in some fields first.")
+      return
+    }
+    
+    const name = prompt(`Enter a name for this ${sobject} template:`)
+    if (!name || name.trim() === "") return
+    
+    const template: Template = {
+      name: name.trim(),
+      sobject,
+      fields,
+      createdAt: new Date().toISOString()
+    }
+    
+    const templates = await storage.get<Template[]>("templates") || []
+    templates.push(template)
+    await storage.set("templates", templates)
+    
+    console.log("[Nimbus] Template saved:", template)
+    alert(`✅ Template "${name}" saved successfully with ${Object.keys(fields).length} fields!`)
+    await updateTemplateDropdown()
+  } catch (error) {
+    console.error("[Nimbus] Error saving template:", error)
+    alert("❌ Failed to save template. Please try again.")
   }
-  
-  const fields = getFormFields()
-  if (Object.keys(fields).length === 0) {
-    alert("No form fields found to save.")
-    return
-  }
-  
-  const name = prompt(`Enter a name for this ${sobject} template:`)
-  if (!name) return
-  
-  const template: Template = {
-    name,
-    sobject,
-    fields,
-    createdAt: new Date().toISOString()
-  }
-  
-  const templates = await storage.get<Template[]>("templates") || []
-  templates.push(template)
-  await storage.set("templates", templates)
-  
-  alert(`Template "${name}" saved successfully with ${Object.keys(fields).length} fields!`)
-  await updateTemplateDropdown()
 }
 
 // Handle loading template
 async function handleLoadTemplate() {
-  const select = document.getElementById("nimbus-template-select") as HTMLSelectElement
-  const templateIndex = parseInt(select.value)
-  
-  if (isNaN(templateIndex)) {
-    alert("Please select a template to load.")
-    return
+  try {
+    const select = document.getElementById("nimbus-template-select") as HTMLSelectElement
+    const templateIndex = parseInt(select.value)
+    
+    if (isNaN(templateIndex)) {
+      alert("Please select a template to load.")
+      return
+    }
+    
+    const templates = await storage.get<Template[]>("templates") || []
+    const template = templates[templateIndex]
+    
+    if (!template) {
+      alert("❌ Template not found.")
+      return
+    }
+    
+    console.log("[Nimbus] Loading template:", template)
+    setFormFields(template.fields)
+    alert(`✅ Template "${template.name}" loaded successfully with ${Object.keys(template.fields).length} fields!`)
+  } catch (error) {
+    console.error("[Nimbus] Error loading template:", error)
+    alert("❌ Failed to load template. Please try again.")
   }
-  
-  const templates = await storage.get<Template[]>("templates") || []
-  const template = templates[templateIndex]
-  
-  if (!template) {
-    alert("Template not found.")
-    return
-  }
-  
-  setFormFields(template.fields)
-  alert(`Template "${template.name}" loaded successfully!`)
 }
 
 // Update the template dropdown
@@ -316,6 +351,8 @@ async function updateTemplateDropdown() {
 
 // Initialize the extension
 function init() {
+  console.log("[Nimbus] Initializing on page:", window.location.href)
+  
   // Remove existing buttons if any
   const existing = document.getElementById("nimbus-template-buttons")
   if (existing) {
@@ -327,11 +364,21 @@ function init() {
   const isFormPage = url.includes("/e?") || url.includes("/lightning/r/") || url.includes("/lightning/o/")
   
   if (isFormPage) {
+    console.log("[Nimbus] Detected form page, injecting template buttons")
+    const sobject = detectSObject()
+    if (sobject) {
+      console.log("[Nimbus] Detected SObject type:", sobject)
+    }
+    
     const buttons = createTemplateButtons()
     document.body.appendChild(buttons)
     updateTemplateDropdown()
+  } else {
+    console.log("[Nimbus] Not a form page, skipping injection")
   }
 }
+
+console.log("[Nimbus] Salesforce Form Template Extension loaded")
 
 // Wait for page to load and initialize
 if (document.readyState === "loading") {
@@ -345,6 +392,7 @@ let lastUrl = window.location.href
 setInterval(() => {
   if (window.location.href !== lastUrl) {
     lastUrl = window.location.href
+    console.log("[Nimbus] URL changed, re-initializing")
     setTimeout(init, 1000) // Wait for page to load
   }
 }, 1000)

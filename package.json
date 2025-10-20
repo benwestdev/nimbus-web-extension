@@ -1,8 +1,9 @@
 {
   "name": "nimbus-web-extension",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Salesforce Form Template Extension",
+  "displayName": "Salesforce Form Templates",
+  "type": "module",
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",
