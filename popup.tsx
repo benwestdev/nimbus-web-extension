@@ -31,9 +31,19 @@ function IndexPopup() {
   }
 
   const deleteTemplate = async (index: number) => {
-    const updatedTemplates = templates.filter((_, i) => i !== index)
-    await storage.set("templates", updatedTemplates)
-    setTemplates(updatedTemplates)
+    const template = templates[index]
+    if (!confirm(`Delete template "${template.name}"?`)) {
+      return
+    }
+    
+    try {
+      const updatedTemplates = templates.filter((_, i) => i !== index)
+      await storage.set("templates", updatedTemplates)
+      setTemplates(updatedTemplates)
+    } catch (error) {
+      console.error("Error deleting template:", error)
+      alert("Failed to delete template. Please try again.")
+    }
   }
 
   return (
@@ -55,9 +65,37 @@ function IndexPopup() {
         </p>
       ) : (
         <div>
-          <p style={{ marginBottom: "12px" }}>
-            Saved Templates: {templates.length}
-          </p>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "12px"
+            }}>
+            <p style={{ margin: 0 }}>Saved Templates: {templates.length}</p>
+            <button
+              onClick={async () => {
+                if (
+                  confirm(
+                    `Delete all ${templates.length} templates? This cannot be undone.`
+                  )
+                ) {
+                  await storage.set("templates", [])
+                  setTemplates([])
+                }
+              }}
+              style={{
+                backgroundColor: "#c23934",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                padding: "4px 8px",
+                cursor: "pointer",
+                fontSize: "11px"
+              }}>
+              Clear All
+            </button>
+          </div>
           <div style={{ maxHeight: "400px", overflowY: "auto" }}>
             {templates.map((template, index) => (
               <div
