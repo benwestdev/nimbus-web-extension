@@ -106,8 +106,8 @@ function setFormFields(fields: Record<string, string>): void {
         const htmlElement = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
         if (htmlElement) {
           // Handle checkboxes differently
-          if (htmlElement.type === "checkbox") {
-            htmlElement.checked = value === "true"
+          if ((element as HTMLInputElement).type === "checkbox") {
+            (element as HTMLInputElement).checked = value === "true"
           } else {
             htmlElement.value = value
           }
